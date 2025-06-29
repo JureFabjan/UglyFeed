@@ -23,6 +23,19 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy NLTK resources
+COPY resources/wordnet.zip /tmp/wordnet.zip
+COPY resources/stopwords.zip /tmp/stopwords.zip
+
+# Unzip NLTK resources to the standard NLTK data directory
+RUN mkdir -p /usr/share/nltk_data/corpora \
+    && unzip /tmp/wordnet.zip -d /usr/share/nltk_data/corpora/ \
+    && unzip /tmp/stopwords.zip -d /usr/share/nltk_data/corpora/ \
+    && rm /tmp/wordnet.zip /tmp/stopwords.zip
+
+# Set NLTK_DATA environment variable
+ENV NLTK_DATA=/usr/share/nltk_data
+
 # Development stage
 FROM base AS development
 RUN pip install --no-cache-dir ipython pytest flake8

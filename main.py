@@ -28,8 +28,8 @@ from logging_setup import setup_logging
 logger = setup_logging()
 
 # Download NLTK resources
-nltk.download('wordnet', quiet=True)
-nltk.download('stopwords', quiet=True)
+# nltk.download('wordnet', quiet=True)
+# nltk.download('stopwords', quiet=True)
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
