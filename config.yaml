@@ -33,7 +33,7 @@ similarity_options:
 # API configuration settings (llm_processor.py)
 # Only one API configuration should be active at any time.
 api_config:
-  selected_api: "Groq"  # Active API: "OpenAI", "Groq", "Anthropic", "Ollama", "Gemini"
+  selected_api: "Gemini"  # Active API: "OpenAI", "Groq", "Anthropic", "Ollama", "Gemini"
 
   # Example configurations for different APIs:
 
@@ -68,7 +68,7 @@ folders:
   rewritten_folder: "rewritten"  # Directory for storing rewritten content
 
 # content_prefix moved to external file and prompt_file option
-prompt_file: "prompt_IT.txt"
+prompt_file: "prompt_EN.txt"
 
 # prompt_file: "prompt_EN.txt"
 # You can find more prompts in the prompts folder
@@ -80,7 +80,7 @@ max_age_days: 10  # Maximum age of items in days to be considered
 feed_title: "UglyFeed RSS"
 feed_link: "https://github.com/fabriziosalmi/UglyFeed"
 feed_description: "A dynamically generated feed using UglyFeed."
-feed_language: "it"
+feed_language: "en"
 feed_self_link: "https://raw.githubusercontent.com/fabriziosalmi/UglyFeed/main/examples/uglyfeed-source-1.xml"
 author: "UglyFeed"
 category: "Technology"
@@ -93,7 +93,7 @@ moderation:
   allow_duplicates: false  # Remove source links repetitions
 
 # Scheduler settings
-scheduling_enabled: false  # Enable or disable scheduling
+scheduling_enabled: true  # Enable or disable scheduling
 scheduling_interval: 4  # Interval for scheduling
 scheduling_period: hours  # Period unit for scheduling (e.g., hours, minutes)
 

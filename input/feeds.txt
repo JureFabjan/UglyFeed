@@ -1,3 +1,5 @@
-https://raw.githubusercontent.com/fabriziosalmi/UglyFeed/main/examples/uglyfeed-source-1.xml
-https://raw.githubusercontent.com/fabriziosalmi/UglyFeed/main/examples/uglyfeed-source-2.xml
-https://raw.githubusercontent.com/fabriziosalmi/UglyFeed/main/examples/uglyfeed-source-3.xml
+http://feeds.bbci.co.uk/news/world/rss.xml
+http://rss.cnn.com/rss/edition_world.rss
+https://www.cnbc.com/id/100727362/device/rss/rss.html
+https://news.google.com/rss
+https://feeds.arstechnica.com/arstechnica/tech-policy
