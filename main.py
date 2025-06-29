@@ -14,7 +14,7 @@ from typing import List, Dict, Any, Optional, Tuple
 import yaml
 import feedparser
 import numpy as np
-import nltk
+# import nltk
 from langdetect import detect
 
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer, HashingVectorizer
