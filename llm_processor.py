@@ -141,7 +141,7 @@ class OpenAICompatibleClient(BaseAPIClient):
     """Client for OpenAI and compatible APIs."""
     
     def _get_default_api_url(self) -> str:
-        return "https://api.openai.com/v1/chat/completions"
+        return "https://api.openai.com/v1"
 
     def call_api(self, content: str, model: str) -> Optional[str]:
         """Call API using the official OpenAI client."""
@@ -150,7 +150,7 @@ class OpenAICompatibleClient(BaseAPIClient):
             response = client.chat.completions.create(
                 model=model,
                 messages=self.format_messages(content),
-                max_tokens=4096,
+                max_completion_tokens=4096,
                 temperature=0.7
             )
             return response.choices[0].message.content
