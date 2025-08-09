@@ -147,12 +147,21 @@ class OpenAICompatibleClient(BaseAPIClient):
         """Call API using the official OpenAI client."""
         try:
             client = OpenAI(api_key=self.api_key, base_url=self.api_url)
-            response = client.chat.completions.create(
-                model=model,
-                messages=self.format_messages(content),
-                max_completion_tokens=4096,
-                temperature=0.7
-            )
+            if model.startswith('gpt-5'):
+                # Doesn't support temperature or max_tokens
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=self.format_messages(content),
+                    max_completion_tokens=4096
+                )
+            else:
+                # For other models, use temperature and max_tokens
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=self.format_messages(content),
+                    max_tokens=4096,
+                    temperature=0.7
+                )
             return response.choices[0].message.content
         except Exception as e:
             logger.error(f"OpenAI API request failed: {str(e)}")
