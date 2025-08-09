@@ -95,8 +95,11 @@ def fetch_feeds_from_file(file_path: str) -> List[Dict[str, str]]:
         for i, url in enumerate(urls, 1):
             logger.info("Fetching feed %d/%d from %s", i, len(urls), url)
             try:
-                feed = feedparser.parse(url)
-                
+                feed = feedparser.parse(
+                    url,
+                    request_headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'}
+                )
+
                 # Check if feed parsing was successful
                 if feed.bozo:
                     logger.warning("Feed %s has parsing warnings: %s", url, feed.bozo_exception)
@@ -109,18 +112,26 @@ def fetch_feeds_from_file(file_path: str) -> List[Dict[str, str]]:
                 feed_articles = []
                 for entry in feed.entries:
                     title = getattr(entry, 'title', '')
-                    description = getattr(entry, 'description', '') or getattr(entry, 'summary', '')
+                    content_text = (
+                        getattr(entry, 'description', None)
+                        or getattr(entry, 'summary', None)
+                        or (entry.content[0].value if hasattr(entry, 'content') and entry.content else None)
+                        or (getattr(entry, 'summary_detail', {}).get('value') if hasattr(entry, 'summary_detail') else None)
+                    )
+                    # Some feeds expose content:encoded under raw keys
+                    if not content_text and isinstance(entry, dict):
+                        content_text = entry.get('content:encoded') or entry.get('content_encoded')
                     link = getattr(entry, 'link', '')
                     
                     # Skip entries with missing critical data
-                    if not title and not description:
-                        logger.warning("Skipping entry with no title or description from %s", url)
+                    if not title and not content_text:
+                        logger.warning("Skipping entry with no title or content from %s", url)
                         continue
                     
                     # Use fallback values for missing data
                     article = {
                         'title': title or 'No Title',
-                        'content': description or 'No Content',
+                        'content': content_text or 'No Content',
                         'link': link or url
                     }
                     feed_articles.append(article)
