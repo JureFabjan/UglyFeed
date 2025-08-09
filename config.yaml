@@ -33,14 +33,14 @@ similarity_options:
 # API configuration settings (llm_processor.py)
 # Only one API configuration should be active at any time.
 api_config:
-  selected_api: "Gemini"  # Active API: "OpenAI", "Groq", "Anthropic", "Ollama", "Gemini"
+  selected_api: "OpenAI"  # Active API: "OpenAI", "Groq", "Anthropic", "Ollama", "Gemini"
 
   # Example configurations for different APIs:
 
   # OpenAI API configuration
-  # openai_api_url: "https://api.openai.com/v1/chat/completions"
-  # openai_api_key: "your_openai_api_key"
-  # openai_model: "gpt-3.5-turbo"
+  openai_api_url: "https://api.openai.com/v1/chat/completions"
+  openai_api_key: "your_openai_api_key"
+  openai_model: "gpt-3.5-turbo"
 
   # Groq API configuration
   groq_api_url: "https://api.groq.com/openai/v1/chat/completions"
