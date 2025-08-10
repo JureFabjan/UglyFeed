@@ -3,3 +3,5 @@ http://rss.cnn.com/rss/edition_world.rss
 https://www.cnbc.com/id/100727362/device/rss/rss.html
 https://news.google.com/rss
 https://feeds.arstechnica.com/arstechnica/tech-policy
+https://www.24ur.com/rss
+https://img.rtvslo.si/feeds/00.xml
