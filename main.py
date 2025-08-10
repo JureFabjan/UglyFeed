@@ -236,7 +236,7 @@ def fetch_feeds_from_file(file_path: str) -> List[Dict[str, str]]:
             try:
                 rss_resp = requests.get(url,
                                         headers={"User-Agent": UA},
-                                        timeout=120)
+                                        timeout=20)
                 rss_resp.raise_for_status()
                 feed = feedparser.parse(rss_resp.content)
 
