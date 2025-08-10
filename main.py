@@ -209,11 +209,11 @@ def extract_article_text(url: str, timeout: int = 15) -> str:
         lines = [ln.strip() for ln in text.splitlines()]
         compact = "\n".join([ln for ln in lines if ln])
 
-        # If still looks like a link list, strip url-only lines
-        if _mostly_urls(compact):
-            compact = "\n".join(ln for ln in compact.splitlines() if not _is_url_like(ln.strip()))
+        # Reject weak/link-list content
+        if not compact or len(compact) < min_chars or _mostly_urls(compact):
+            return ""
 
-        return compact.strip()
+        return compact
     except Exception:
         return ""
 
@@ -263,15 +263,12 @@ def fetch_feeds_from_file(file_path: str) -> List[Dict[str, str]]:
                         continue
 
                     content_text = extract_article_text(link, timeout=120)
-                    
-                    # Skip entries with missing critical data
-                    if not title and not content_text:
-                        logger.warning("Skipping entry with no title or content from %s", url)
+                    if not content_text:
+                        logger.info("Dropping entry (no content) from %s: %s", url, title or link)
                         continue
                     
-                    # Use fallback values for missing data
                     article = {
-                        'title': title or 'No Title',
+                        'title': title,
                         'content': content_text,
                         'link': link
                     }
@@ -287,8 +284,8 @@ def fetch_feeds_from_file(file_path: str) -> List[Dict[str, str]]:
         logger.info("Total articles fetched and parsed: %d", len(articles))
         
         if len(articles) == 0:
-            logger.error("CRITICAL: No articles were fetched from any feeds! This will cause 'No Title' issues.")
-            logger.error("Please check your RSS feed URLs using: python tools/rss_debug.py %s", file_path)
+            logger.error("CRITICAL: No articles were fetched from any feeds! This will cause empty prompts.")
+            logger.error("Please verify your RSS feed URLs or run a debug script against them.")
             
     except FileNotFoundError as e:
         logger.error("File not found: %s", e)

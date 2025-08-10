@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 # Maximum context length for LLM APIs
 MAX_TOKENS = 128_000
 
+URL_RE = re.compile(r"https?://\S+", re.I)
+
 class APIClientFactory:
     """Factory class to create appropriate API clients based on provider type."""
     
@@ -363,12 +365,27 @@ def process_json_file(filepath: str, api_config: Dict[str, Any], content_prefix:
     try:
         with open(filepath, 'r', encoding='utf-8') as file:
             json_data = json.load(file)
-                    
+
         if isinstance(json_data, dict):
-            json_data = json_data['articles']
-        if isinstance(json_data, str):
-            logger.error(f"Expected list of dictionaries but got a string. File: {filepath}")
-            return
+            art = json_data.get("articles", json_data)
+            if isinstance(art, list):
+                json_data = [x for x in art if isinstance(x, dict)]
+            elif isinstance(art, dict):
+                # dict-of-dicts; preserve numeric order if keys are ints
+                try:
+                    json_data = [v for _, v in sorted(art.items(), key=lambda kv: int(kv[0])) if isinstance(v, dict)]
+                except Exception:
+                    json_data = [v for v in art.values() if isinstance(v, dict)]
+            else:
+                json_data = []
+        elif isinstance(json_data, list):
+            json_data = [x for x in json_data if isinstance(x, dict)]
+        else:
+            json_data = []
+
+        if not json_data:
+            logger.error(f"No articles array found in {filepath}.")
+            return    
             
         combined_content = content_prefix + "\n" + "\n".join(
             f"[source {idx + 1}] {item.get('content', 'No content provided')}"
@@ -399,7 +416,8 @@ def process_json_file(filepath: str, api_config: Dict[str, Any], content_prefix:
             logger.error("Failed to get rewritten content from API.")
 
     except Exception as e:
-        logger.error(f"Error processing file {filepath}: {str(e)}")
+        logger.error(f"Error processing file {filepath}: {type(e).__name__}: {e!r}")
+
 
 def save_rewritten_content(content: str, original_data: List[Dict], filepath: str,
                          rewritten_folder: str, api_config: Dict[str, Any]) -> None:
@@ -410,10 +428,21 @@ def save_rewritten_content(content: str, original_data: List[Dict], filepath: st
     cleaned_content = re.sub(r'Fonte:.*$', '', cleaned_content, flags=re.MULTILINE)
     cleaned_content = ensure_proper_punctuation(cleaned_content)
 
+    # Ensure original_data is a list
+    if not isinstance(original_data, list):
+        logger.warning("original_data is not a list; normalizing to list of values if dict.")
+        if isinstance(original_data, dict):
+            original_data = list(original_data.values())
+        else:
+            original_data = []
+
     links = [item.get('link') for item in original_data if 'link' in item]
 
+    # Pick a safe title
+    safe_title = next((it.get('title') for it in original_data if isinstance(it, dict) and it.get('title')), 'No Title')
+
     new_data = {
-        'title': original_data[0].get('title', 'No Title'),
+        'title': safe_title,
         'content': cleaned_content,
         'processed_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'links': links,
