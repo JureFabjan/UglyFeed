@@ -33,6 +33,7 @@ logger = setup_logging()
 # Download NLTK resources
 # nltk.download('wordnet', quiet=True)
 # nltk.download('stopwords', quiet=True)
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 URL_RE = re.compile(r"https?://\S+", re.I)
 JUNK_RE = re.compile(r"(nav|menu|footer|header|breadcrumb|share|social|subscribe|related|promo|ad[s]?|tag[s]?|comment[s]?|sidebar)", re.I)
 PDF_RE = re.compile(r"\.pdf($|\?)", re.IGNORECASE)
@@ -83,6 +84,7 @@ def merge_configs(yaml_cfg: Dict[str, Any], env_cfg: Dict[str, Any], cli_cfg: Di
 
     return final_config
 
+
 def _is_url_like(text: str) -> bool:
     if not text:
         return False
@@ -95,6 +97,7 @@ def _mostly_urls(text: str) -> bool:
         return False
     urlish = sum(1 for ln in lines if _is_url_like(ln))
     return urlish / len(lines) >= 0.5
+
 
 def _filter_paragraphs(paras: list[str]) -> list[str]:
     kept = []
@@ -109,6 +112,7 @@ def _filter_paragraphs(paras: list[str]) -> list[str]:
             continue
         kept.append(t)
     return kept
+
 
 def _extract_text_from_xml(xml: str) -> str:
     soup = BeautifulSoup(xml, "xml")
@@ -154,6 +158,7 @@ def _extract_text_from_xml(xml: str) -> str:
 
     lines = [ln.strip() for ln in best.splitlines()]
     return "\n".join([ln for ln in lines if ln])
+
 
 def extract_article_text(url: str, timeout: int = 15) -> str:
     try:
@@ -212,6 +217,7 @@ def extract_article_text(url: str, timeout: int = 15) -> str:
     except Exception:
         return ""
 
+
 def fetch_feeds_from_file(file_path: str) -> List[Dict[str, str]]:
     """Fetch and parse RSS feeds from a file containing URLs with enhanced error handling."""
     articles = []
@@ -229,7 +235,7 @@ def fetch_feeds_from_file(file_path: str) -> List[Dict[str, str]]:
             logger.info("Fetching feed %d/%d from %s", i, len(urls), url)
             try:
                 rss_resp = requests.get(url,
-                                        headers={"User-Agent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'},
+                                        headers={"User-Agent": UA},
                                         timeout=120)
                 rss_resp.raise_for_status()
                 feed = feedparser.parse(rss_resp.content)
@@ -266,8 +272,8 @@ def fetch_feeds_from_file(file_path: str) -> List[Dict[str, str]]:
                     # Use fallback values for missing data
                     article = {
                         'title': title or 'No Title',
-                        'content': content_text or 'No Content',
-                        'link': link or url
+                        'content': content_text,
+                        'link': link
                     }
                     feed_articles.append(article)
                 
@@ -419,13 +425,12 @@ def save_grouped_articles(grouped_articles_with_scores: List[Tuple[List[Dict[str
 
 
 def deduplicate_articles(articles: List[Dict[str, str]]) -> List[Dict[str, str]]:
-    """Remove duplicate articles based on content and link."""
+    """Remove duplicate articles based on link."""
     seen = set()
     unique_articles = []
-    for article in articles:
-        identifier = (article['content'], article['link'])
-        if identifier not in seen:
-            seen.add(identifier)
+    for article in articles: 
+        if article['link'] not in seen:
+            seen.add(article['link'])
             unique_articles.append(article)
     logger.info("Total unique articles after deduplication: %d", len(unique_articles))
     return unique_articles
