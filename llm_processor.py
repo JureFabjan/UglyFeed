@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Maximum context length for LLM APIs
-MAX_TOKENS = 32768
+MAX_TOKENS = 128_000
 
 class APIClientFactory:
     """Factory class to create appropriate API clients based on provider type."""
@@ -151,8 +151,9 @@ class OpenAICompatibleClient(BaseAPIClient):
                 # Doesn't support temperature or max_tokens
                 response = client.chat.completions.create(
                     model=model,
-                    messages=self.format_messages(content),
-                    max_completion_tokens=4096
+                    messages=self.format_messages(content)
+                    #,
+                    #max_completion_tokens=4096
                 )
             else:
                 # For other models, use temperature and max_tokens
@@ -362,16 +363,16 @@ def process_json_file(filepath: str, api_config: Dict[str, Any], content_prefix:
     try:
         with open(filepath, 'r', encoding='utf-8') as file:
             json_data = json.load(file)
-            
-        # if isinstance(json_data, dict):
-        #     json_data = [json_data]
+                    
+        if isinstance(json_data, dict):
+            json_data = json_data['articles']
         if isinstance(json_data, str):
             logger.error(f"Expected list of dictionaries but got a string. File: {filepath}")
             return
             
         combined_content = content_prefix + "\n" + "\n".join(
             f"[source {idx + 1}] {item.get('content', 'No content provided')}"
-            for idx, item in enumerate(json_data["articles"])
+            for idx, item in enumerate(json_data)
         )
 
         if estimate_token_count(combined_content) > MAX_TOKENS:
