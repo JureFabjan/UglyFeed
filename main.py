@@ -257,21 +257,6 @@ def fetch_feeds_from_file(file_path: str) -> List[Dict[str, str]]:
                         continue
 
                     content_text = extract_article_text(link, timeout=120)
-
-
-
-                for entry in feed.entries:
-                    title = getattr(entry, 'title', '')
-                    content_text = (
-                        getattr(entry, 'description', None)
-                        or getattr(entry, 'summary', None)
-                        or (entry.content[0].value if hasattr(entry, 'content') and entry.content else None)
-                        or (getattr(entry, 'summary_detail', {}).get('value') if hasattr(entry, 'summary_detail') else None)
-                    )
-                    # Some feeds expose content:encoded under raw keys
-                    if not content_text and isinstance(entry, dict):
-                        content_text = entry.get('content:encoded') or entry.get('content_encoded')
-                    link = getattr(entry, 'link', '')
                     
                     # Skip entries with missing critical data
                     if not title and not content_text:
