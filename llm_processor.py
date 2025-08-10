@@ -363,15 +363,15 @@ def process_json_file(filepath: str, api_config: Dict[str, Any], content_prefix:
         with open(filepath, 'r', encoding='utf-8') as file:
             json_data = json.load(file)
             
-        if isinstance(json_data, dict):
-            json_data = [json_data]
-        elif isinstance(json_data, str):
+        # if isinstance(json_data, dict):
+        #     json_data = [json_data]
+        if isinstance(json_data, str):
             logger.error(f"Expected list of dictionaries but got a string. File: {filepath}")
             return
             
-        combined_content = content_prefix + "\n".join(
+        combined_content = content_prefix + "\n" + "\n".join(
             f"[source {idx + 1}] {item.get('content', 'No content provided')}"
-            for idx, item in enumerate(json_data)
+            for idx, item in enumerate(json_data["articles"])
         )
 
         if estimate_token_count(combined_content) > MAX_TOKENS:
