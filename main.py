@@ -12,6 +12,9 @@ import re
 
 from typing import List, Dict, Any, Optional, Tuple
 import yaml
+import requests
+from readability import Document
+from bs4 import BeautifulSoup
 import feedparser
 import numpy as np
 # import nltk
@@ -30,7 +33,9 @@ logger = setup_logging()
 # Download NLTK resources
 # nltk.download('wordnet', quiet=True)
 # nltk.download('stopwords', quiet=True)
-
+URL_RE = re.compile(r"https?://\S+", re.I)
+JUNK_RE = re.compile(r"(nav|menu|footer|header|breadcrumb|share|social|subscribe|related|promo|ad[s]?|tag[s]?|comment[s]?|sidebar)", re.I)
+PDF_RE = re.compile(r"\.pdf($|\?)", re.IGNORECASE)
 
 def load_config(config_path: str) -> Dict[str, Any]:
     """Load configuration from a YAML file."""
@@ -78,6 +83,134 @@ def merge_configs(yaml_cfg: Dict[str, Any], env_cfg: Dict[str, Any], cli_cfg: Di
 
     return final_config
 
+def _is_url_like(text: str) -> bool:
+    if not text:
+        return False
+    return bool(URL_RE.search(text)) and sum(c.isalpha() for c in text) < max(30, int(len(text) * 0.25))
+
+
+def _mostly_urls(text: str) -> bool:
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return False
+    urlish = sum(1 for ln in lines if _is_url_like(ln))
+    return urlish / len(lines) >= 0.5
+
+def _filter_paragraphs(paras: list[str]) -> list[str]:
+    kept = []
+    for t in paras:
+        if not t:
+            continue
+        if _is_url_like(t):
+            continue
+        letters = sum(c.isalpha() for c in t)
+        if letters < 40 and "." not in t:
+            # very short / likely caption or list item
+            continue
+        kept.append(t)
+    return kept
+
+def _extract_text_from_xml(xml: str) -> str:
+    soup = BeautifulSoup(xml, "xml")
+    for tag in soup(["script", "style", "ref-list", "references", "math", "figure", "table", "tbl", "footnote", "fn", "noscript"]):
+        tag.decompose()
+
+    # If this is a feed, don't try to extract article text from it.
+    root = soup.find(True)
+    if root and root.name in {"rss", "RDF", "feed"}:
+        return ""
+
+    # JATS/TEI or generic XML articles
+    candidates = [
+        "article > body",
+        "body",
+        "abstract",
+        "main",
+        "content",
+        "summary",
+        "description",
+        "content:encoded",  # handled specially due to namespace colon
+    ]
+
+    best = ""
+    for sel in candidates:
+        # Handle namespaced tags like content:encoded (avoid CSS pseudo-class parsing)
+        if sel == "content:encoded":
+            nodes = soup.find_all(lambda t: t.name and (t.name == "content:encoded" or t.name.endswith(":encoded")))
+        else:
+            nodes = soup.select(sel)
+
+        for node in nodes:
+            paras = [p.get_text(" ", strip=True) for p in node.find_all("p")]
+            text = "\n\n".join(_filter_paragraphs(paras)) if paras else node.get_text(separator="\n", strip=True)
+            if len(text) > len(best):
+                best = text
+
+    if not best:
+        best = soup.get_text(separator="\n", strip=True)
+        # Strip url-only lines if fallback grabbed everything
+        if _mostly_urls(best):
+            best = "\n".join(ln for ln in best.splitlines() if not _is_url_like(ln.strip()))
+
+    lines = [ln.strip() for ln in best.splitlines()]
+    return "\n".join([ln for ln in lines if ln])
+
+def extract_article_text(url: str, timeout: int = 15) -> str:
+    try:
+        resp = requests.get(url, headers={"User-Agent": UA}, timeout=timeout, allow_redirects=True)
+        resp.raise_for_status()
+        ctype = resp.headers.get("Content-Type", "").lower()
+        if "pdf" in ctype or PDF_RE.search(url or ""):
+            return ""
+        text_or_html = resp.text
+
+        # XML (but not XHTML) path
+        is_xml = ("xml" in ctype and "xhtml" not in ctype) or text_or_html.lstrip().startswith(("<?xml", "<rss", "<feed", "<article"))
+        if is_xml:
+            extracted = _extract_text_from_xml(text_or_html)
+            if extracted:
+                return extracted
+            # fall through to HTML parsing if XML yielded nothing
+
+        # HTML via Readability
+        doc = Document(text_or_html)
+        summary_html = doc.summary(html_partial=True)
+        soup = BeautifulSoup(summary_html, "html.parser")
+        for tag in soup(["script", "style", "noscript"]):
+            tag.decompose()
+        text = soup.get_text(separator="\n", strip=True)
+
+        # Fallbacks if Readability produced too little text
+        if len(text) < 400:
+            soup_full = BeautifulSoup(text_or_html, "html.parser")
+
+            # Drop common junk/nav blocks early
+            for tag in soup_full.find_all(["script", "style", "noscript", "nav", "aside", "header", "footer", "form"]):
+                tag.decompose()
+            for tag in soup_full.find_all(class_=JUNK_RE):
+                tag.decompose()
+            for tag in soup_full.find_all(id=JUNK_RE):
+                tag.decompose()
+
+            main = soup_full.find(["article", "main"]) or soup_full.find(id="content")
+            container = main or soup_full
+
+            # Collect paragraphs with heuristics to avoid link lists
+            paras = [p.get_text(" ", strip=True) for p in container.find_all("p")]
+            paras = _filter_paragraphs(paras)
+            text = "\n\n".join(paras)
+
+        # Normalize whitespace
+        lines = [ln.strip() for ln in text.splitlines()]
+        compact = "\n".join([ln for ln in lines if ln])
+
+        # If still looks like a link list, strip url-only lines
+        if _mostly_urls(compact):
+            compact = "\n".join(ln for ln in compact.splitlines() if not _is_url_like(ln.strip()))
+
+        return compact.strip()
+    except Exception:
+        return ""
 
 def fetch_feeds_from_file(file_path: str) -> List[Dict[str, str]]:
     """Fetch and parse RSS feeds from a file containing URLs with enhanced error handling."""
@@ -95,10 +228,11 @@ def fetch_feeds_from_file(file_path: str) -> List[Dict[str, str]]:
         for i, url in enumerate(urls, 1):
             logger.info("Fetching feed %d/%d from %s", i, len(urls), url)
             try:
-                feed = feedparser.parse(
-                    url,
-                    request_headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'}
-                )
+                rss_resp = requests.get(url,
+                                        headers={"User-Agent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'},
+                                        timeout=120)
+                rss_resp.raise_for_status()
+                feed = feedparser.parse(rss_resp.content)
 
                 # Check if feed parsing was successful
                 if feed.bozo:
@@ -110,6 +244,22 @@ def fetch_feeds_from_file(file_path: str) -> List[Dict[str, str]]:
                 
                 # Extract articles with better error handling
                 feed_articles = []
+                for entry in feed.entries:
+                    title = getattr(entry, 'title', '').strip()
+                    link = (
+                        entry.get("link")
+                        or entry.get("id")
+                        or (entry.get("links", [{}])[0].get("href") if entry.get("links") else None)
+                    )
+                    if not link:
+                        # Skip entries without a link
+                        logger.warning("Skipping entry with no link from %s", url)
+                        continue
+
+                    content_text = extract_article_text(link, timeout=120)
+
+
+
                 for entry in feed.entries:
                     title = getattr(entry, 'title', '')
                     content_text = (
