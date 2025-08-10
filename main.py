@@ -210,7 +210,7 @@ def extract_article_text(url: str, timeout: int = 15) -> str:
         compact = "\n".join([ln for ln in lines if ln])
 
         # Reject weak/link-list content
-        if not compact or len(compact) < min_chars or _mostly_urls(compact):
+        if not compact or _mostly_urls(compact):
             return ""
 
         return compact
