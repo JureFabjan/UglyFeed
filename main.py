@@ -19,6 +19,7 @@ import feedparser
 import numpy as np
 # import nltk
 from langdetect import detect
+import translators as ts
 
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer, HashingVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -218,7 +219,7 @@ def extract_article_text(url: str, timeout: int = 15) -> str:
         return ""
 
 
-def fetch_feeds_from_file(file_path: str) -> List[Dict[str, str]]:
+def fetch_feeds_from_file(file_path: str, lang: str) -> List[Dict[str, str]]:
     """Fetch and parse RSS feeds from a file containing URLs with enhanced error handling."""
     articles = []
     try:
@@ -266,7 +267,16 @@ def fetch_feeds_from_file(file_path: str) -> List[Dict[str, str]]:
                     if not content_text:
                         logger.info("Dropping entry (no content) from %s: %s", url, title or link)
                         continue
-                    
+
+                    # Translate right after fetching full text (e.g., Slovene -> English)
+                    if lang:
+                        target_lang = lang
+                        detected = detect_language(f"{title} {content_text}")
+                        if detected != target_lang:
+                            title = translate_text(title, detected, target_lang)
+                            content_text = translate_text(content_text, detected, target_lang)
+                            logger.info("Translated article to %s using Google (detected: %s)", target_lang, detected)
+
                     article = {
                         'title': title,
                         'content': content_text,
@@ -329,6 +339,36 @@ def preprocess_text(text: str, language: str, config: Dict[str, Any]) -> str:
     preprocessed_text = " ".join(tokens)
     return preprocessed_text
 
+
+def _translate(text: str, src: str, dst: str) -> str:
+    try:
+        return ts.translate_text(
+            text,
+            translator="google",
+            from_language=src or "auto",
+            to_language=dst or "en",
+        )
+    except Exception as e:
+        logger.warning("Google translation failed (%s->%s): %s", src, dst, e)
+        return text
+
+def translate_text(text: str, source_lang: Optional[str], target_lang: str, tcfg: Dict[str, Any]) -> str:
+    """Translate large text in chunks with Google."""
+    if not text:
+        return text
+    if source_lang and target_lang and source_lang == target_lang:
+        return text
+
+    max_chunk = 4000
+    src = source_lang if source_lang and source_lang != "unknown" else "auto"
+    dst = target_lang or "en"
+
+    if len(text) <= max_chunk:
+        return _translate(text, src, dst)
+
+    parts = [text[i:i + max_chunk] for i in range(0, len(text), max_chunk)]
+    out = [_translate(p, src, dst) for p in parts]
+    return " ".join(out)
 
 def vectorize_texts(texts: List[str], config: Dict[str, Any]) -> Any:
     """Vectorize texts based on the specified method in the configuration."""
@@ -445,7 +485,8 @@ def main(config: Dict[str, Any]) -> None:
 
     try:
         logger.info("Fetching and parsing RSS feeds...")
-        articles = fetch_feeds_from_file(input_feeds_path)
+        target_lang = config.get('output_language', 'en')
+        articles = fetch_feeds_from_file(input_feeds_path, target_lang)
         logger.info("Total articles fetched and parsed: %d", len(articles))
 
         logger.info("Deduplicating articles...")

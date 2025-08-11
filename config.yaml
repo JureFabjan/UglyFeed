@@ -5,6 +5,9 @@
 # source feeds to process
 input_feeds_path: "input/feeds.txt"
 
+# Output language for the content
+output_language: "en"  # Language for the output content, e.g., "en", "it", "sl"
+
 # Pre-processing source feeds
 similarity_threshold: 0.50  # Minimum similarity score to consider a match
 
