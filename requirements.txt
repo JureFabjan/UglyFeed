@@ -25,4 +25,3 @@ readability-lxml==0.8.4.1
 streamlit
 streamlit_option_menu
 schedule
-posixpath
