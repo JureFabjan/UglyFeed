@@ -7,6 +7,8 @@ import threading
 import shutil
 from pathlib import Path
 import os
+import urllib.parse
+import posixpath
 from logging_setup import setup_logging, get_logger
 
 # Initialize logging
