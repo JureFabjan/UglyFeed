@@ -352,7 +352,7 @@ def _translate(text: str, src: str, dst: str) -> str:
         logger.warning("Google translation failed (%s->%s): %s", src, dst, e)
         return text
 
-def translate_text(text: str, source_lang: Optional[str], target_lang: str, tcfg: Dict[str, Any]) -> str:
+def translate_text(text: str, source_lang: Optional[str], target_lang: str) -> str:
     """Translate large text in chunks with Google."""
     if not text:
         return text
