@@ -13,6 +13,7 @@ import re
 from typing import List, Dict, Any, Optional, Tuple
 import yaml
 import requests
+from urllib.parse import urlparse, parse_qs, urljoin, unquote
 from readability import Document
 from bs4 import BeautifulSoup
 import feedparser
@@ -36,8 +37,61 @@ logger = setup_logging()
 # nltk.download('stopwords', quiet=True)
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 URL_RE = re.compile(r"https?://\S+", re.I)
-JUNK_RE = re.compile(r"(nav|menu|footer|header|breadcrumb|share|social|subscribe|related|promo|ad[s]?|tag[s]?|comment[s]?|sidebar)", re.I)
+JUNK_RE = re.compile(r"(nav|menu|footer|header|breadcrumb|share|social|subscribe|related|promo|ad[s]?|tag[s]?|comment[s]?|sidebar|cookie|consent|gdpr|privacy|banner)", re.I)
 PDF_RE = re.compile(r"\.pdf($|\?)", re.IGNORECASE)
+
+# A persistent session lets us set cookies/headers once
+SESSION = requests.Session()
+SESSION.headers.update({
+    "User-Agent": UA,
+    "Accept-Language": "en-US,en;q=0.9",
+})
+
+def _prime_google_consent_cookies(sess: requests.Session) -> None:
+    # Seed cookies that tell Google we've already consented (bypass EU interstitials)
+    try:
+        consent_val = "YES+cb.20240519-17-p0.en+F+678"
+        for dom in [".google.com", ".news.google.com", ".consent.google.com", ".youtube.com"]:
+            sess.cookies.set("CONSENT", consent_val, domain=dom)
+            sess.cookies.set("SOCS", "CAI", domain=dom)
+    except Exception:
+        pass
+
+_prime_google_consent_cookies(SESSION)
+
+
+def _follow_meta_refresh(html: str, base_url: str) -> Optional[str]:
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+        meta = soup.find("meta", attrs={"http-equiv": re.compile("^refresh$", re.I)})
+        if meta and meta.get("content"):
+            m = re.search(r"url=([^;]+)", meta["content"], flags=re.I)
+            if m:
+                return urljoin(base_url, m.group(1).strip("'\" "))
+    except Exception:
+        return None
+    return None
+
+
+def _unwrap_google_news_url(url: str) -> str:
+    # Prefer the publisher URL if present; otherwise add params that reduce consent prompts
+    try:
+        p = urlparse(url)
+        if "news.google." in p.netloc:
+            qs = parse_qs(p.query)
+            if "url" in qs and qs["url"]:
+                return unquote(qs["url"][0])
+            if "hl" not in qs and "gl" not in qs and "ceid" not in qs:
+                sep = "&" if p.query else "?"
+                return f"{url}{sep}hl=en-US&gl=US&ceid=US:en&pccc=1"
+        if p.netloc.endswith("consent.google.com"):
+            cont = parse_qs(p.query).get("continue", [None])[0]
+            if cont:
+                return unquote(cont)
+    except Exception:
+        pass
+    return url
+
 
 def load_config(config_path: str) -> Dict[str, Any]:
     """Load configuration from a YAML file."""
@@ -162,13 +216,30 @@ def _extract_text_from_xml(xml: str) -> str:
 
 
 def extract_article_text(url: str, timeout: int = 15) -> str:
+    def _is_consent_page_text(txt: str) -> bool:
+        return bool(re.search(r"\b(use cookies|cookies? and data|consent|cookie preferences)\b", txt, re.I))
+
     try:
-        resp = requests.get(url, headers={"User-Agent": UA}, timeout=timeout, allow_redirects=True)
+        url = _unwrap_google_news_url(url)
+        resp = SESSION.get(url, timeout=timeout, allow_redirects=True)
         resp.raise_for_status()
+
+        # If we still hit consent.google.com, follow the "continue" target
+        parsed = urlparse(resp.url)
+        if parsed.netloc.endswith("consent.google.com"):
+            cont = parse_qs(parsed.query).get("continue", [None])[0]
+            if cont:
+                return extract_article_text(unquote(cont), timeout)
+
         ctype = resp.headers.get("Content-Type", "").lower()
         if "pdf" in ctype or PDF_RE.search(url or ""):
             return ""
         text_or_html = resp.text
+
+        # Handle HTML meta refresh (Google News sometimes uses this to bounce to the publisher)
+        jump = _follow_meta_refresh(text_or_html, resp.url)
+        if jump:
+            return extract_article_text(jump, timeout)
 
         # XML (but not XHTML) path
         is_xml = ("xml" in ctype and "xhtml" not in ctype) or text_or_html.lstrip().startswith(("<?xml", "<rss", "<feed", "<article"))
@@ -210,8 +281,20 @@ def extract_article_text(url: str, timeout: int = 15) -> str:
         lines = [ln.strip() for ln in text.splitlines()]
         compact = "\n".join([ln for ln in lines if ln])
 
-        # Reject weak/link-list content
-        if not compact or _mostly_urls(compact):
+        # If we still only captured a consent wall, try to jump again via meta-refresh/canonical
+        if (not compact or _mostly_urls(compact) or _is_consent_page_text(compact) or "news.google." in parsed.netloc):
+            # Try meta refresh again against the full HTML, or a canonical link
+            soup_full = BeautifulSoup(text_or_html, "html.parser")
+            jump = _follow_meta_refresh(text_or_html, resp.url)
+            if not jump:
+                canon = soup_full.find("link", rel=lambda x: x and "canonical" in x.lower())
+                if canon and canon.get("href"):
+                    jump = urljoin(resp.url, canon["href"])
+            if jump and jump != resp.url:
+                return extract_article_text(jump, timeout)
+
+        # Reject weak/link-list content or consent pages
+        if not compact or _mostly_urls(compact) or _is_consent_page_text(compact):
             return ""
 
         return compact
@@ -254,7 +337,8 @@ def fetch_feeds_from_file(file_path: str, lang: str) -> List[Dict[str, str]]:
                 for entry in feed.entries:
                     title = getattr(entry, 'title', '').strip()
                     link = (
-                        entry.get("link")
+                        entry.get("feedburner_origlink")
+                        or entry.get("link")
                         or entry.get("id")
                         or (entry.get("links", [{}])[0].get("href") if entry.get("links") else None)
                     )
@@ -263,6 +347,7 @@ def fetch_feeds_from_file(file_path: str, lang: str) -> List[Dict[str, str]]:
                         logger.warning("Skipping entry with no link from %s", url)
                         continue
 
+                    link = _unwrap_google_news_url(link)
                     content_text = extract_article_text(link, timeout=120)
                     if not content_text:
                         logger.info("Dropping entry (no content) from %s: %s", url, title or link)
