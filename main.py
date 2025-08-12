@@ -13,6 +13,7 @@ import re
 from typing import List, Dict, Any, Optional, Tuple
 import yaml
 import requests
+from urllib.parse import urljoin
 from readability import Document
 from bs4 import BeautifulSoup
 import feedparser
@@ -38,6 +39,7 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like 
 URL_RE = re.compile(r"https?://\S+", re.I)
 JUNK_RE = re.compile(r"(nav|menu|footer|header|breadcrumb|share|social|subscribe|related|promo|ad[s]?|tag[s]?|comment[s]?|sidebar)", re.I)
 PDF_RE = re.compile(r"\.pdf($|\?)", re.IGNORECASE)
+MEDIA_PREFIX_RE = re.compile(r"^(image|audio|video)/", re.I)
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -223,6 +225,87 @@ def extract_article_text(url: str, timeout: int = 15) -> str:
         return ""
 
 
+def _to_int(val: Any) -> Optional[int]:
+    try:
+        return int(val)
+    except Exception:
+        return None
+
+
+def collect_media_from_entry(entry: Any) -> List[Dict[str, Any]]:
+    """
+    Collect media from an RSS/Atom entry only:
+    - enclosures and rel=enclosure links
+    - media:content and media:thumbnail (MRSS)
+    - <img>/<source>/<audio>/<video> inside entry summary/content HTML
+    """
+    media: List[Dict[str, Any]] = []
+    seen_urls: set[str] = set()
+
+    def add_item(item: Dict[str, Any]) -> None:
+        url = item.get("url")
+        if not url or url in seen_urls:
+            return
+        seen_urls.add(url)
+        media.append(item)
+
+    # Enclosures
+    for enc in entry.get("enclosures", []) or []:
+        url = enc.get("href") or enc.get("url")
+        mime = enc.get("type")
+        add_item({
+            "url": url,
+            "mime": mime,
+            "medium": (mime.split("/", 1)[0] if isinstance(mime, str) and "/" in mime else None),
+            "length": _to_int(enc.get("length") or enc.get("filesize") or enc.get("fileSize")),
+            "rel": "enclosure",
+        })
+
+    # Links with rel=enclosure
+    for ln in entry.get("links", []) or []:
+        if ln.get("rel") != "enclosure":
+            continue
+        url = ln.get("href")
+        mime = ln.get("type")
+        add_item({
+            "url": url,
+            "mime": mime,
+            "medium": (mime.split("/", 1)[0] if isinstance(mime, str) and "/" in mime else None),
+            "length": _to_int(ln.get("length")),
+            "rel": "enclosure",
+        })
+
+    # MRSS: media:content
+    for mc in entry.get("media_content", []) or []:
+        url = mc.get("url")
+        mime = mc.get("type")
+        add_item({
+            "url": url,
+            "mime": mime,
+            "medium": mc.get("medium") or (mime.split("/", 1)[0] if isinstance(mime, str) and "/" in mime else None),
+            "width": _to_int(mc.get("width")),
+            "height": _to_int(mc.get("height")),
+            "fileSize": _to_int(mc.get("fileSize") or mc.get("filesize")),
+            "duration": _to_int(mc.get("duration")),
+            "bitrate": _to_int(mc.get("bitrate")),
+            "rel": "media_content",
+        })
+
+    # MRSS: media:thumbnail
+    for mt in entry.get("media_thumbnail", []) or []:
+        url = mt.get("url")
+        add_item({
+            "url": url,
+            "mime": None,
+            "medium": "image",
+            "width": _to_int(mt.get("width")),
+            "height": _to_int(mt.get("height")),
+            "rel": "media_thumbnail",
+        })
+
+    return media
+
+
 def fetch_feeds_from_file(file_path: str, lang: str) -> List[Dict[str, str]]:
     """Fetch and parse RSS feeds from a file containing URLs with enhanced error handling."""
     articles = []
@@ -267,6 +350,9 @@ def fetch_feeds_from_file(file_path: str, lang: str) -> List[Dict[str, str]]:
                         logger.warning("Skipping entry with no link from %s", url)
                         continue
 
+                    # Collect media only from the feed entry (not from fetched article HTML)
+                    media = collect_media_from_entry(entry)
+
                     content_text = extract_article_text(link, timeout=120)
                     if not content_text:
                         logger.info("Dropping entry (no content) from %s: %s", url, title or link)
@@ -284,7 +370,8 @@ def fetch_feeds_from_file(file_path: str, lang: str) -> List[Dict[str, str]]:
                     article = {
                         'title': title,
                         'content': content_text,
-                        'link': link
+                        'link': link,
+                        'media': media
                     }
                     feed_articles.append(article)
                 

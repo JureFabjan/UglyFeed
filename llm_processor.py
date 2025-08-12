@@ -442,6 +442,26 @@ def save_rewritten_content(content: str, original_data: List[Dict], filepath: st
 
     links = [item.get('link') for item in original_data if 'link' in item]
 
+    # Aggregate media from all articles (dedupe by URL, keep first occurrence)
+    def _aggregate_media(articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        aggregated: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for art in articles or []:
+            media_list = art.get('media') or []
+            if not isinstance(media_list, list):
+                continue
+            for m in media_list:
+                if not isinstance(m, dict):
+                    continue
+                url = m.get('url')
+                if not url or url in seen:
+                    continue
+                seen.add(url)
+                aggregated.append(m)
+        return aggregated
+
+    media = _aggregate_media(original_data)
+
     # Pick a safe title
     safe_title = next((it.get('title') for it in original_data if isinstance(it, dict) and it.get('title')), 'No Title')
 
@@ -453,7 +473,8 @@ def save_rewritten_content(content: str, original_data: List[Dict], filepath: st
         'api': api_config['provider'],
         'model': api_config['model'],
         'links': links,
-        'primary_link': links[0] if links else None
+        'primary_link': links[0] if links else None,
+        'media': media
     }
 
     new_filename = Path(rewritten_folder) / (Path(filepath).stem + '_rewritten.json')

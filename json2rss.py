@@ -18,7 +18,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Register namespaces
 namespaces = {
-    'atom': 'http://www.w3.org/2005/Atom'
+    'atom': 'http://www.w3.org/2005/Atom',
+    'media': 'http://search.yahoo.com/mrss/'
 }
 
 for prefix, uri in namespaces.items():
@@ -78,6 +79,7 @@ def create_rss_channel(config):
     """Create the base RSS channel element with proper namespaces and configuration."""
     rss = Element('rss', version='2.0')
     rss.set('xmlns:atom', 'http://www.w3.org/2005/Atom')
+    rss.set('xmlns:media', 'http://search.yahoo.com/mrss/')
     channel = SubElement(rss, 'channel')
 
     title = SubElement(channel, 'title')
@@ -113,6 +115,61 @@ def create_rss_channel(config):
         copy_right.text = get_config_value(config, 'copyright')
 
     return rss, channel
+
+def escape_xml_chars(text):
+    """Escape special characters for XML content."""
+    return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+def _set_xml_attr(el, name, value):
+    """Set attribute if value is not None/empty."""
+    if value is None:
+        return
+    if isinstance(value, (int, float)):
+        el.set(name, str(value))
+    elif isinstance(value, str) and value != '':
+        el.set(name, value)
+
+
+def append_media_elements(item_element, media_list):
+    """Append RSS enclosure and MRSS media:* elements from provided media list."""
+    if not isinstance(media_list, list) or not media_list:
+        return
+
+    seen_urls = set()
+
+    # Add a single RSS enclosure using the first media item with a URL
+    first = next((m for m in media_list if isinstance(m, dict) and m.get('url')), None)
+    if first:
+        enc = SubElement(item_element, 'enclosure')
+        _set_xml_attr(enc, 'url', first.get('url'))
+        _set_xml_attr(enc, 'type', first.get('mime') or first.get('type'))
+        _set_xml_attr(enc, 'length', first.get('length') or first.get('fileSize'))
+
+    # Add MRSS media:content / media:thumbnail for all media items (dedup by URL)
+    for m in media_list:
+        if not isinstance(m, dict):
+            continue
+        url = m.get('url')
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
+
+        rel = (m.get('rel') or '').lower()
+        tag = 'media:thumbnail' if 'thumbnail' in rel else 'media:content'
+
+        me = SubElement(item_element, tag)
+        _set_xml_attr(me, 'url', url)
+        _set_xml_attr(me, 'type', m.get('mime') or m.get('type'))
+        _set_xml_attr(me, 'medium', m.get('medium'))
+        _set_xml_attr(me, 'width', m.get('width'))
+        _set_xml_attr(me, 'height', m.get('height'))
+
+        # media:content supports additional attributes
+        if tag == 'media:content':
+            _set_xml_attr(me, 'fileSize', m.get('fileSize') or m.get('length'))
+            _set_xml_attr(me, 'duration', m.get('duration'))
+            _set_xml_attr(me, 'bitrate', m.get('bitrate'))
+
 
 def process_item(item, config, moderated_words):
     """Process individual JSON item to XML item element."""
@@ -187,6 +244,9 @@ def process_item(item, config, moderated_words):
         guid_attrs['isPermaLink'] = 'false'
         raw = f"{item.get('title', 'No Title')}|{processed_at_str}"
         guid.text = f"urn:uglyfeed:{hashlib.sha1(raw.encode('utf-8')).hexdigest()}"
+
+    # Append media (RSS enclosure + MRSS media:content/media:thumbnail)
+    append_media_elements(item_element, item.get('media') or [])
 
     return item_element
 
