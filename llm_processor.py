@@ -427,7 +427,7 @@ def save_rewritten_content(content: str, original_data: List[Dict], filepath: st
                          rewritten_folder: str, api_config: Dict[str, Any]) -> None:
     """Save the rewritten content to a new JSON file."""
     cleaned_content = re.sub(r'\*\*', '', content)
-    cleaned_content = re.sub(r'\n\n+', ' ', cleaned_content)
+    cleaned_content = re.sub(r'\n{3,}', '\n', cleaned_content)
     cleaned_content = re.sub(r'Fonti:.*$', '', cleaned_content, flags=re.MULTILINE)
     cleaned_content = re.sub(r'Fonte:.*$', '', cleaned_content, flags=re.MULTILINE)
     cleaned_content = ensure_proper_punctuation(cleaned_content)
@@ -451,7 +451,9 @@ def save_rewritten_content(content: str, original_data: List[Dict], filepath: st
         'processed_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'links': links,
         'api': api_config['provider'],
-        'model': api_config['model']
+        'model': api_config['model'],
+        'links': links,
+        'primary_link': links[0] if links else None
     }
 
     new_filename = Path(rewritten_folder) / (Path(filepath).stem + '_rewritten.json')

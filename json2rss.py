@@ -11,6 +11,7 @@ import re
 import logging
 import argparse
 import yaml
+import hashlib
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -159,14 +160,33 @@ def process_item(item, config, moderated_words):
         processed_at = datetime.strptime(processed_at_str, '%Y-%m-%d %H:%M:%S')
     except ValueError:
         processed_at = datetime.now()
+    
+    # Add link element from first available source link (if any)
+    primary_link = None
+    if isinstance(item.get('links'), list) and item['links']:
+        primary_link = item['links'][0]
+    elif isinstance(item.get('link'), str):
+        primary_link = item['link']
+
+    if primary_link:
+        item_link = SubElement(item_element, 'link')
+        item_link.text = primary_link
 
     pub_date = SubElement(item_element, 'pubDate')
     pub_date.text = processed_at.strftime(
         get_config_value(config, 'datetime_format', '%a, %d %b %Y %H:%M:%S GMT')
     )
 
-    guid = SubElement(item_element, 'guid')
-    guid.text = f"https://github.com/fabriziosalmi/UglyFeed/{urllib.parse.quote(item.get('title', 'No Title'))}"
+    # Stable GUID: prefer the article link; otherwise generate a URN from title+timestamp
+    guid_attrs = {}
+    guid = SubElement(item_element, 'guid', guid_attrs)
+    if primary_link:
+        guid_attrs['isPermaLink'] = 'true'
+        guid.text = primary_link
+    else:
+        guid_attrs['isPermaLink'] = 'false'
+        raw = f"{item.get('title', 'No Title')}|{processed_at_str}"
+        guid.text = f"urn:uglyfeed:{hashlib.sha1(raw.encode('utf-8')).hexdigest()}"
 
     return item_element
 
@@ -215,6 +235,41 @@ def create_rss_feed(json_data, output_path, config):
         ), 
         reverse=True
     )
+
+    # Update channel-level metadata for better reader refresh detection
+    latest_dt = None
+    if all_items:
+        latest_dt = datetime.strptime(
+            all_items[0].find('pubDate').text,
+            get_config_value(config, 'datetime_format', '%a, %d %b %Y %H:%M:%S GMT')
+        )
+    else:
+        latest_dt = datetime.now()
+
+    # Channel pubDate
+    ch_pub = channel.find('pubDate')
+    if ch_pub is None:
+        ch_pub = SubElement(channel, 'pubDate')
+    ch_pub.text = latest_dt.strftime(get_config_value(config, 'datetime_format', '%a, %d %b %Y %H:%M:%S GMT'))
+
+    # Channel lastBuildDate
+    ch_lbd = channel.find('lastBuildDate')
+    if ch_lbd is None:
+        ch_lbd = SubElement(channel, 'lastBuildDate')
+    ch_lbd.text = ch_pub.text
+
+    # Channel generator
+    gen = channel.find('generator')
+    if gen is None:
+        gen = SubElement(channel, 'generator')
+    gen.text = get_config_value(config, 'generator', 'UglyFeed')
+
+    # Channel TTL (minutes) to hint refresh interval
+    ttl_val = get_config_value(config, 'ttl', '15')
+    ttl_el = channel.find('ttl')
+    if ttl_el is None:
+        ttl_el = SubElement(channel, 'ttl')
+    ttl_el.text = str(ttl_val)
 
     max_items = int(get_config_value(config, 'max_items', 50))
     trimmed_items = all_items[:max_items]
