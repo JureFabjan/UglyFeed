@@ -339,16 +339,20 @@ def truncate_content(content: str, max_tokens: int) -> str:
 
 def ensure_proper_punctuation(text: str) -> str:
     """Ensure proper punctuation in the text."""
-    sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', text)
-    corrected_sentences = []
+    out = []
+    for line in text.splitlines(True):  # keep linebreaks
+        sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', line)
+        corrected_sentences = []
 
-    for sentence in sentences:
-        sentence = sentence.strip()
-        if sentence and not sentence.endswith('.'):
-            sentence += '.'
-        corrected_sentences.append(sentence)
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if sentence and not sentence.endswith('.'):
+                sentence += '.'
+            corrected_sentences.append(sentence)
 
-    return ' '.join(corrected_sentences)
+        out.append(' '.join(corrected_sentences))
+
+    return '\n'.join(out)
 
 def read_content_prefix(prefix_file_path: str) -> str:
     """Read content prefix from a file."""
