@@ -153,16 +153,15 @@ class OpenAICompatibleClient(BaseAPIClient):
                 # Doesn't support temperature or max_tokens
                 response = client.chat.completions.create(
                     model=model,
-                    messages=self.format_messages(content)
-                    #,
-                    #max_completion_tokens=4096
+                    messages=self.format_messages(content),
+                    max_completion_tokens=2048
                 )
             else:
                 # For other models, use temperature and max_tokens
                 response = client.chat.completions.create(
                     model=model,
                     messages=self.format_messages(content),
-                    max_tokens=4096,
+                    max_tokens=2048,
                     temperature=0.7
                 )
             return response.choices[0].message.content

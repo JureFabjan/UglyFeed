@@ -38,10 +38,10 @@ RUN mkdir -p /usr/share/nltk_data/corpora \
 ENV NLTK_DATA=/usr/share/nltk_data
 
 # Development stage
-FROM base AS development
-RUN pip install --no-cache-dir ipython pytest flake8
-COPY . .
-CMD ["streamlit", "run", "gui.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
+# FROM base AS development
+# RUN pip install --no-cache-dir ipython pytest flake8
+# COPY . .
+# CMD ["streamlit", "run", "gui.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
 
 # Production stage
 FROM base AS production

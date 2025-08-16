@@ -3,7 +3,6 @@ http://rss.cnn.com/rss/edition_world.rss
 https://www.cnbc.com/id/100727362/device/rss/rss.html
 https://www.theguardian.com/uk/rss
 http://feeds.nytimes.com/nyt/rss/HomePage
-https://www.washingtonpost.com/arcio/rss/category/politics/
 https://www.24ur.com/rss
 https://img.rtvslo.si/feeds/00.xml
 https://demokracija.si/feed/
@@ -11,6 +10,3 @@ https://feeds.feedburner.com/Mladina
 https://techcrunch.com/feed/
 https://feeds.feedburner.com/TheHackersNews
 http://feeds.arstechnica.com/arstechnica/index/
-https://deepmind.com/blog/feed/basic/
-https://raw.githubusercontent.com/Olshansk/rss-feeds/refs/heads/main/feeds/feed_openai_research.xml
-http://googleresearch.blogspot.com/atom.xml

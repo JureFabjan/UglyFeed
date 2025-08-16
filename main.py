@@ -29,6 +29,8 @@ from nltk.stem import WordNetLemmatizer, SnowballStemmer
 from nltk.corpus import stopwords
 from logging_setup import setup_logging
 
+from datetime import datetime, timedelta, timezone
+
 # Setup logging
 logger = setup_logging()
 
@@ -87,6 +89,73 @@ def merge_configs(yaml_cfg: Dict[str, Any], env_cfg: Dict[str, Any], cli_cfg: Di
     final_config = update_recursive(final_config, cli_cfg)
 
     return final_config
+
+
+def _parse_rss_datetime(val: str) -> Optional[datetime]:
+    """Parse RFC822-style RSS datetimes; fallback None if invalid."""
+    if not val:
+        return None
+    fmts = [
+        "%a, %d %b %Y %H:%M:%S %Z",
+        "%a, %d %b %Y %H:%M:%S %z",
+        "%a, %d %b %Y %H:%M:%S GMT",
+    ]
+    for fmt in fmts:
+        try:
+            dt = datetime.strptime(val, fmt)
+            # Make parsed naive times UTC-aware
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except Exception:
+            continue
+    return None
+
+
+def load_last_feed_time(config: Dict[str, Any]) -> Optional[datetime]:
+    """
+    Load last reference time from existing RSS produced by json2rss.py:
+    Prefer channel lastBuildDate, then pubDate, else newest item pubDate.
+    """
+    output_dir = config.get('output', {}).get('output_dir', 'uglyfeeds')
+    rss_path = os.path.join(output_dir, 'uglyfeed.xml')
+    if not os.path.exists(rss_path):
+        logger.info("No existing RSS feed at %s (first run).", rss_path)
+        return None
+    try:
+        import xml.etree.ElementTree as ET
+        tree = ET.parse(rss_path)
+        root = tree.getroot()
+        channel = root.find('channel')
+        if channel is None:
+            return None
+        lbd = channel.findtext('lastBuildDate') or channel.findtext('pubDate')
+        dt = _parse_rss_datetime(lbd)
+        if dt:
+            logger.info("Loaded last feed time: %s", dt.isoformat())
+            return dt
+        # Fallback: inspect first item
+        first_item = channel.find('item')
+        if first_item is not None:
+            idt = _parse_rss_datetime(first_item.findtext('pubDate'))
+            if idt:
+                logger.info("Loaded last item time: %s", idt.isoformat())
+                return idt
+    except Exception as e:
+        logger.warning("Failed to parse existing RSS feed time: %s", e)
+    return None
+
+
+def _entry_datetime(entry) -> datetime:
+    """Derive datetime for a feedparser entry; fallback to now."""
+    for key in ("published_parsed", "updated_parsed", "created_parsed"):
+        val = entry.get(key)
+        if val:
+            try:
+                return datetime(*val[:6], tzinfo=timezone.utc)
+            except Exception:
+                continue
+    return datetime.now(timezone.utc)
 
 
 def _is_url_like(text: str) -> bool:
@@ -306,7 +375,7 @@ def collect_media_from_entry(entry: Any) -> List[Dict[str, Any]]:
     return media
 
 
-def fetch_feeds_from_file(file_path: str, lang: str) -> List[Dict[str, str]]:
+def fetch_feeds_from_file(file_path: str, lang: str, cutoff_dt: Optional[datetime]) -> List[Dict[str, str]]:
     """Fetch and parse RSS feeds from a file containing URLs with enhanced error handling."""
     articles = []
     try:
@@ -350,6 +419,13 @@ def fetch_feeds_from_file(file_path: str, lang: str) -> List[Dict[str, str]]:
                         logger.warning("Skipping entry with no link from %s", url)
                         continue
 
+                    # Publication time filtering
+                    entry_dt = _entry_datetime(entry)
+                    if cutoff_dt and entry_dt <= cutoff_dt:
+                        logger.debug("Discarding entry older than cutoff (%s <= %s): %s",
+                                      entry_dt.isoformat(), cutoff_dt.isoformat(), link)
+                        continue
+
                     # Collect media only from the feed entry (not from fetched article HTML)
                     media = collect_media_from_entry(entry)
 
@@ -371,7 +447,8 @@ def fetch_feeds_from_file(file_path: str, lang: str) -> List[Dict[str, str]]:
                         'title': title,
                         'content': content_text,
                         'link': link,
-                        'media': media
+                        'media': media,
+                        'published_at': entry_dt.astimezone(timezone.utc).isoformat()
                     }
                     feed_articles.append(article)
                 
@@ -575,9 +652,21 @@ def main(config: Dict[str, Any]) -> None:
     ensure_directory_exists(output_directory)
 
     try:
-        logger.info("Fetching and parsing RSS feeds...")
+        logger.info("Determining cutoff date based on existing RSS feed...")
+        last_feed_time = load_last_feed_time(config)
+        max_age_days = int(config.get('max_age_days', 30))
+        age_cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+        effective_cutoff = None
+        if last_feed_time:
+            # Normalize last_feed_time to UTC assumption (treat naive as UTC)
+            effective_cutoff = max(last_feed_time, age_cutoff)
+        else:
+            effective_cutoff = age_cutoff
+        logger.info("Effective cutoff datetime: %s", effective_cutoff.isoformat())
+
+        logger.info("Fetching and parsing RSS feeds (discarding entries <= cutoff)...")
         target_lang = config.get('output_language', 'en')
-        articles = fetch_feeds_from_file(input_feeds_path, target_lang)
+        articles = fetch_feeds_from_file(input_feeds_path, target_lang, effective_cutoff)
         logger.info("Total articles fetched and parsed: %d", len(articles))
 
         logger.info("Deduplicating articles...")

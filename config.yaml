@@ -10,6 +10,7 @@ output_language: "en"  # Language for the output content, e.g., "en", "it", "sl"
 
 # Pre-processing source feeds
 similarity_threshold: 0.50  # Minimum similarity score to consider a match
+max_age_days: 2  # Maximum age of items in days to be considered
 
 preprocessing:
   remove_html: true  # Remove HTML tags from the text
@@ -22,13 +23,13 @@ preprocessing:
 vectorization:
   method: 'tfidf'  # Method for text vectorization, can be 'tfidf' only atm
   ngram_range: [1, 2]  # Consider unigrams and bigrams
-  max_df: 0.85  # Max document frequency for terms
+  max_df: 0.94  # Max document frequency for terms
   min_df: 0.01  # Min document frequency for terms
-  max_features: 5000  # Maximum number of features to extract
+  max_features: 50000  # Maximum number of features to extract
 
 similarity_options:
-  method: 'dbscan'  # Clustering method: 'dbscan', 'kmeans', 'agglomerative'
-  eps: 0.5  # DBSCAN: The maximum distance between two samples for one to be considered as in the neighborhood of the other
+  method: 'agglomerative'  # Clustering method: 'dbscan', 'kmeans', 'agglomerative'
+  eps: 0.57  # DBSCAN: The maximum distance between two samples for one to be considered as in the neighborhood of the other
   min_samples: 2  # DBSCAN: The number of samples in a neighborhood for a point to be considered as a core point
   n_clusters: 5  # KMeans and Agglomerative: Number of clusters
   linkage: 'average'  # Agglomerative: Linkage criterion
@@ -41,7 +42,7 @@ api_config:
   # Example configurations for different APIs:
 
   # OpenAI API configuration
-  openai_api_url: "https://api.openai.com/v1/chat/completions"
+  openai_api_url: "https://api.openai.com/v1"
   openai_api_key: "your_openai_api_key"
   openai_model: "gpt-5-nano"
 
@@ -78,7 +79,7 @@ prompt_file: "prompt_EN.txt"
 
 
 # Limit settings for content retrieval and processing (json2rss.py)
-max_items: 100  # Maximum number of items to process
+max_items: 50  # Maximum number of items to process
 max_age_days: 10  # Maximum age of items in days to be considered
 feed_title: "JFRSS"
 feed_link: "https://github.com/JureFabjan/JFRSS"
@@ -97,7 +98,7 @@ moderation:
 
 # Scheduler settings
 scheduling_enabled: true  # Enable or disable scheduling
-scheduling_interval: 24  # Interval for scheduling
+scheduling_interval: 48  # Interval for scheduling
 scheduling_period: hours  # Period unit for scheduling (e.g., hours, minutes)
 
 # Custom HTTP server port
