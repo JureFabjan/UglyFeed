@@ -21,6 +21,9 @@ import numpy as np
 # import nltk
 from langdetect import detect
 import translators as ts
+import time
+import random
+from http import HTTPStatus
 
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer, HashingVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -42,6 +45,9 @@ URL_RE = re.compile(r"https?://\S+", re.I)
 JUNK_RE = re.compile(r"(nav|menu|footer|header|breadcrumb|share|social|subscribe|related|promo|ad[s]?|tag[s]?|comment[s]?|sidebar)", re.I)
 PDF_RE = re.compile(r"\.pdf($|\?)", re.IGNORECASE)
 MEDIA_PREFIX_RE = re.compile(r"^(image|audio|video)/", re.I)
+
+_TRANSLATE_FAILS = 0
+_MAX_TRANSLATE_FAILS = 5
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -509,16 +515,58 @@ def preprocess_text(text: str, language: str, config: Dict[str, Any]) -> str:
 
 
 def _translate(text: str, src: str, dst: str) -> str:
-    try:
-        return ts.translate_text(
-            text,
-            translator="google",
-            from_language=src or "auto",
-            to_language=dst or "en",
-        )
-    except Exception as e:
-        logger.warning("Google translation failed (%s->%s): %s", src, dst, e)
-        return text
+    """Translate text using Google or Bing, with exponential backoff on 429 errors and a small initial wait."""
+    global _TRANSLATE_FAILS
+    time.sleep(random.uniform(2, 3))  # Small initial wait to avoid immediate 429
+    if _TRANSLATE_FAILS >= _MAX_TRANSLATE_FAILS:
+        # Too many translation failures through Google, try Bing instead
+        try:
+            return ts.translate_text(
+                text,
+                translator="bing",
+                from_language=src or "auto",
+                to_language=dst or "en",
+            )
+        except Exception as e:
+            msg = str(e)
+            if "429" in msg:
+                _TRANSLATE_FAILS += 1
+                wait = min(30, 2 ** _TRANSLATE_FAILS) + random.uniform(0, 1.5)
+                logger.warning("Bing translation 429 (fail #%d). Backing off %.1fs", _TRANSLATE_FAILS, wait)
+                time.sleep(wait)
+                return ts.translate_text(
+                    text,
+                    translator="bing",
+                    from_language=src or "auto",
+                    to_language=dst or "en",
+                )
+            else:
+                logger.warning("Bing translation failed (%s->%s): %s", src, dst, e)
+    else:
+        try:
+            return ts.translate_text(
+                text,
+                translator="google",
+                from_language=src or "auto",
+                to_language=dst or "en",
+            )
+        except Exception as e:
+            msg = str(e)
+            if "429" in msg:
+                _TRANSLATE_FAILS += 1
+                wait = min(30, 2 ** _TRANSLATE_FAILS) + random.uniform(0, 1.5)
+                logger.warning("Google translation 429 (fail #%d). Backing off %.1fs", _TRANSLATE_FAILS, wait)
+                time.sleep(wait)
+                return ts.translate_text(
+                    text,
+                    translator="google",
+                    from_language=src or "auto",
+                    to_language=dst or "en",
+                )
+            else:
+                logger.warning("Google translation failed (%s->%s): %s", src, dst, e)
+    return text
+
 
 def translate_text(text: str, source_lang: Optional[str], target_lang: str) -> str:
     """Translate large text in chunks with Google."""
