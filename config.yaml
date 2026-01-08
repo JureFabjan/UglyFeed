@@ -42,7 +42,7 @@ api_config:
   # Example configurations for different APIs:
 
   # OpenAI API configuration
-  openai_api_url: https://api.deepinfra.com/v1/openai" # "https://api.openai.com/v1"
+  openai_api_url: "https://api.deepinfra.com/v1/openai" # "https://api.openai.com/v1"
   openai_api_key: "your_openai_api_key"
   openai_model: "Qwen/Qwen3-30B-A3B" # "gpt-5-nano"
 

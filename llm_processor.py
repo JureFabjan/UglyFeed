@@ -28,6 +28,9 @@ MAX_TOKENS = 128_000
 
 URL_RE = re.compile(r"https?://\S+", re.I)
 
+def strip_think(text: str) -> str:
+    return re.sub(r"(?is)<think>.*?</think>\s*", "", text or "").strip()
+
 class APIClientFactory:
     """Factory class to create appropriate API clients based on provider type."""
     
@@ -162,13 +165,21 @@ class OpenAICompatibleClient(BaseAPIClient):
                 response = client.chat.completions.create(
                     model=model,
                     messages=self.format_messages(content),
-                    enable_thinking=False, # Disable "thinking" mode
-                    max_output_tokens=2048, # Limit output tokens
+                    max_tokens=2048, # Limit output tokens
                     temperature=0.7, # Moderate creativity
                     top_p=0.8, # Nucleus sampling
-                    top_k=20, # Top-k sampling
-                    min_p=0 # No minimum probability
+                    extra_body={
+                        "enable_thinking": False,
+                        "thinking": False,
+                        "disable_thinking": True,
+                        "top_k": 20,
+                        "min_p": 0,
+                    }
                 )
+
+                # The model may include <think>...</think> tags in the text
+                response.choices[0].message.content = strip_think(response.choices[0].message.content)
+
             else:
                 # For other models, use temperature and max_tokens
                 response = client.chat.completions.create(
