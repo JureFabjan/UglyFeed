@@ -148,13 +148,26 @@ class OpenAICompatibleClient(BaseAPIClient):
     def call_api(self, content: str, model: str) -> Optional[str]:
         """Call API using the official OpenAI client."""
         try:
-            client = OpenAI(api_key=self.api_key, base_url=self.api_url)
+            client = OpenAI(api_key=self.api_key,
+                            base_url=self.api_url)
             if model.startswith('gpt-5'):
                 # Doesn't support temperature or max_tokens
                 response = client.chat.completions.create(
                     model=model,
                     messages=self.format_messages(content),
-                    max_completion_tokens=2048
+                    max_output_tokens=2048
+                )
+            elif model.startswith('Qwen/Qwen3'):
+                # Qwen3 model specific parameters
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=self.format_messages(content),
+                    enable_thinking=False, # Disable "thinking" mode
+                    max_output_tokens=2048, # Limit output tokens
+                    temperature=0.7, # Moderate creativity
+                    top_p=0.8, # Nucleus sampling
+                    top_k=20, # Top-k sampling
+                    min_p=0 # No minimum probability
                 )
             else:
                 # For other models, use temperature and max_tokens
@@ -388,12 +401,12 @@ def process_json_file(filepath: str, api_config: Dict[str, Any], content_prefix:
 
         if not json_data:
             logger.error(f"No articles array found in {filepath}.")
-            return    
-            
+            return
+
         combined_content = content_prefix + "\n" + "\n".join(
             f"[source {idx + 1}] {item.get('content', 'No content provided')}"
             for idx, item in enumerate(json_data)
-        )
+            )
 
         if estimate_token_count(combined_content) > MAX_TOKENS:
             combined_content = truncate_content(combined_content, MAX_TOKENS)

@@ -25,4 +25,5 @@ readability-lxml==0.8.4.1
 streamlit
 streamlit_option_menu
 schedule
-translators
+argostranslate==1.9.1
+sentencepiece==0.1.99

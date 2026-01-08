@@ -20,7 +20,9 @@ import feedparser
 import numpy as np
 # import nltk
 from langdetect import detect
-import translators as ts
+import argostranslate.package as argos_package
+import argostranslate.translate as argos_translate
+# import translators as ts
 import time
 import random
 from http import HTTPStatus
@@ -46,8 +48,8 @@ JUNK_RE = re.compile(r"(nav|menu|footer|header|breadcrumb|share|social|subscribe
 PDF_RE = re.compile(r"\.pdf($|\?)", re.IGNORECASE)
 MEDIA_PREFIX_RE = re.compile(r"^(image|audio|video)/", re.I)
 
-_TRANSLATE_FAILS = 0
-_MAX_TRANSLATE_FAILS = 5
+_ARGOS_INDEX_UPDATED = False
+_INSTALLED_PAIRS: set[tuple[str, str]] = set()
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -447,7 +449,7 @@ def fetch_feeds_from_file(file_path: str, lang: str, cutoff_dt: Optional[datetim
                         if detected != target_lang:
                             title = translate_text(title, detected, target_lang)
                             content_text = translate_text(content_text, detected, target_lang)
-                            logger.info("Translated article to %s using Google (detected: %s)", target_lang, detected)
+                            logger.info("Translated article to %s locally (detected: %s)", target_lang, detected)
 
                     article = {
                         'title': title,
@@ -514,77 +516,112 @@ def preprocess_text(text: str, language: str, config: Dict[str, Any]) -> str:
     return preprocessed_text
 
 
+def _ensure_argos_model(src: str, dst: str) -> bool:
+    """
+    Ensure Argos Translate model for (src -> dst) is installed locally.
+    Returns True if available after this call, else False.
+    """
+    global _ARGOS_INDEX_UPDATED
+    src = (src or "auto").lower()
+    dst = (dst or "en").lower()
+
+    # Argos cannot handle 'auto' – caller must supply real src code.
+    if src in ("auto", "unknown", "", None):
+        return False
+
+    # Already known installed?
+    if (src, dst) in _INSTALLED_PAIRS:
+        return True
+
+    installed = argos_package.get_installed_packages()
+    if any(p.from_code == src and p.to_code == dst for p in installed):
+        _INSTALLED_PAIRS.add((src, dst))
+        return True
+
+    # Update index only once
+    if not _ARGOS_INDEX_UPDATED:
+        try:
+            argos_package.update_package_index()
+        except Exception as e:
+            logger.warning("Argos: failed updating package index: %s", e)
+        _ARGOS_INDEX_UPDATED = True
+
+    try:
+        available = argos_package.get_available_packages()
+        pkg = next((p for p in available if p.from_code == src and p.to_code == dst), None)
+        if not pkg:
+            logger.warning("Argos: no package found for %s -> %s", src, dst)
+            return False
+        logger.info("Argos: downloading & installing model %s -> %s (%s)", src, dst, pkg.package_version)
+        path = pkg.download()
+        argos_package.install_from_path(path)
+        _INSTALLED_PAIRS.add((src, dst))
+        return True
+    except Exception as e:
+        logger.warning("Argos: installation failed for %s -> %s: %s", src, dst, e)
+        return False
+    
+
 def _translate(text: str, src: str, dst: str) -> str:
-    """Translate text using Google or Bing, with exponential backoff on 429 errors and a small initial wait."""
-    global _TRANSLATE_FAILS
-    time.sleep(random.uniform(2, 3))  # Small initial wait to avoid immediate 429
-    if _TRANSLATE_FAILS >= _MAX_TRANSLATE_FAILS:
-        # Too many translation failures through Google, try Bing instead
-        try:
-            return ts.translate_text(
-                text,
-                translator="bing",
-                from_language=src or "auto",
-                to_language=dst or "en",
-            )
-        except Exception as e:
-            msg = str(e)
-            if "429" in msg:
-                _TRANSLATE_FAILS += 1
-                wait = min(30, 2 ** _TRANSLATE_FAILS) + random.uniform(0, 1.5)
-                logger.warning("Bing translation 429 (fail #%d). Backing off %.1fs", _TRANSLATE_FAILS, wait)
-                time.sleep(wait)
-                return ts.translate_text(
-                    text,
-                    translator="bing",
-                    from_language=src or "auto",
-                    to_language=dst or "en",
-                )
-            else:
-                logger.warning("Bing translation failed (%s->%s): %s", src, dst, e)
-    else:
-        try:
-            return ts.translate_text(
-                text,
-                translator="google",
-                from_language=src or "auto",
-                to_language=dst or "en",
-            )
-        except Exception as e:
-            msg = str(e)
-            if "429" in msg:
-                _TRANSLATE_FAILS += 1
-                wait = min(30, 2 ** _TRANSLATE_FAILS) + random.uniform(0, 1.5)
-                logger.warning("Google translation 429 (fail #%d). Backing off %.1fs", _TRANSLATE_FAILS, wait)
-                time.sleep(wait)
-                return ts.translate_text(
-                    text,
-                    translator="google",
-                    from_language=src or "auto",
-                    to_language=dst or "en",
-                )
-            else:
-                logger.warning("Google translation failed (%s->%s): %s", src, dst, e)
-    return text
+    """
+    Local translation using Argos Translate. Falls back to original text if:
+    - source unknown
+    - model not available and cannot be installed
+    - any runtime error
+    """
+    src = (src or "").lower()
+    dst = (dst or "en").lower()
+
+    if not text or src == dst:
+        return text
+
+    if src in ("auto", "unknown", "", None):
+        # Attempt detection (already have detect_language util)
+        detected = detect_language(text[:500])  # limit sample
+        if detected not in ("unknown", "", None):
+            src = detected
+        else:
+            return text
+
+    if not _ensure_argos_model(src, dst):
+        return text
+    
+    try:
+        return argos_translate.translate(text, src, dst)
+    except Exception as e:
+        logger.warning("Argos translation failed (%s->%s): %s", src, dst, e)
+        return text
 
 
 def translate_text(text: str, source_lang: Optional[str], target_lang: str) -> str:
-    """Translate large text in chunks with Google."""
+    """Translate large text locally in chunks using Argos Translate."""
     if not text:
         return text
     if source_lang and target_lang and source_lang == target_lang:
         return text
 
-    max_chunk = 4000
-    src = source_lang if source_lang and source_lang != "unknown" else "auto"
+    # Conservative chunk size (Argos handles larger, but keep margin)
+    max_chunk = 1500
+    src = source_lang if source_lang and source_lang not in ("unknown", "auto") else source_lang
     dst = target_lang or "en"
 
     if len(text) <= max_chunk:
         return _translate(text, src, dst)
 
-    parts = [text[i:i + max_chunk] for i in range(0, len(text), max_chunk)]
-    out = [_translate(p, src, dst) for p in parts]
-    return " ".join(out)
+    parts = []
+    buf = []
+    cur = 0
+    # Split on sentence-like boundaries to avoid cutting mid-sentence
+    for segment in re.split(r'(?<=[.!?])\s+', text):
+        if sum(len(s) for s in buf) + len(segment) + 1 > max_chunk and buf:
+            chunk = " ".join(buf)
+            parts.append(_translate(chunk, src, dst))
+            buf = []
+        buf.append(segment)
+    if buf:
+        parts.append(_translate(" ".join(buf), src, dst))
+    return " ".join(parts)
+
 
 def vectorize_texts(texts: List[str], config: Dict[str, Any]) -> Any:
     """Vectorize texts based on the specified method in the configuration."""
