@@ -177,9 +177,6 @@ class OpenAICompatibleClient(BaseAPIClient):
                     }
                 )
 
-                # The model may include <think>...</think> tags in the text
-                response.choices[0].message.content = strip_think(response.choices[0].message.content)
-
             else:
                 # For other models, use temperature and max_tokens
                 response = client.chat.completions.create(
@@ -188,7 +185,7 @@ class OpenAICompatibleClient(BaseAPIClient):
                     max_tokens=2048,
                     temperature=0.7
                 )
-            return response.choices[0].message.content
+            return strip_think(response.choices[0].message.content)
         except Exception as e:
             logger.error(f"OpenAI API request failed: {str(e)}")
             return None
