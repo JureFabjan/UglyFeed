@@ -33,7 +33,7 @@ RUN pip install --no-cache-dir -U "ctranslate2>=4.4.0"
 RUN bash -lc 'for f in $(find /usr/local/lib/python3.10/site-packages -name "libctranslate2-*.so*"); do echo "Checking $f"; readelf -W -l "$f" | grep GNU_STACK || true; done'
 
 # Optional: sanity import
-RUN python - <<'PY'\nimport ctranslate2; print("ctranslate2 OK")\nPY
+RUN python -c "import ctranslate2; print('ctranslate2 OK')"
 
 # Copy NLTK resources
 COPY resources/wordnet.zip /tmp/wordnet.zip
