@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     build-essential \
     unzip \
+    execstack \
+    binutils \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
@@ -23,6 +25,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Ensure ctranslate2 is a binary wheel; clear any executable stack flag
+RUN pip install --no-cache-dir -U --only-binary=:all: ctranslate2 || true \
+    && find /usr/local/lib/python3.10/site-packages -name "libctranslate2-*.so*" -print -exec execstack -c {} + || true
+
+# Optional debugging: verify GNU_STACK is non-executable (should show '-' not 'X')
+RUN find /usr/local/lib/python3.10/site-packages -name "libctranslate2-*.so*" -exec execstack -q {} \;
 
 # Copy NLTK resources
 COPY resources/wordnet.zip /tmp/wordnet.zip
