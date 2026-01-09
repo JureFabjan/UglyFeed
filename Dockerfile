@@ -14,7 +14,6 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     build-essential \
     unzip \
-    execstack \
     binutils \
     && rm -rf /var/lib/apt/lists/*
 
@@ -26,12 +25,15 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Ensure ctranslate2 is a binary wheel; clear any executable stack flag
-RUN pip install --no-cache-dir -U --only-binary=:all: ctranslate2 || true \
-    && find /usr/local/lib/python3.10/site-packages -name "libctranslate2-*.so*" -print -exec execstack -c {} + || true
+# Force manylinux wheel; fail if a source build would occur
+ENV PIP_ONLY_BINARY=:all:
+RUN pip install --no-cache-dir -U "ctranslate2>=4.4.0"
 
-# Optional debugging: verify GNU_STACK is non-executable (should show '-' not 'X')
-RUN find /usr/local/lib/python3.10/site-packages -name "libctranslate2-*.so*" -exec execstack -q {} \;
+# Verify GNU_STACK is non-exec (should be R/W, not E)
+RUN bash -lc 'for f in $(find /usr/local/lib/python3.10/site-packages -name "libctranslate2-*.so*"); do echo "Checking $f"; readelf -W -l "$f" | grep GNU_STACK || true; done'
+
+# Optional: sanity import
+RUN python - <<'PY'\nimport ctranslate2; print("ctranslate2 OK")\nPY
 
 # Copy NLTK resources
 COPY resources/wordnet.zip /tmp/wordnet.zip
