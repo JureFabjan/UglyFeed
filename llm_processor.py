@@ -629,6 +629,13 @@ def main(config_path: str, prompt_path: Optional[str] = None, api: Optional[str]
 
         # Create rewritten folder if it doesn't exist
         Path(rewritten_folder).mkdir(parents=True, exist_ok=True)
+        # Clean all files in rewritten folder if any to avoid stale data
+        for filename in os.listdir(rewritten_folder):
+            file_path = os.path.join(rewritten_folder, filename)
+            try:
+                os.unlink(file_path)
+            except Exception as e:
+                logger.warning("Failed to delete %s: %s", file_path, e)
 
         # Process all JSON files in the output folder
         json_files = list(Path(output_folder).glob('*.json'))

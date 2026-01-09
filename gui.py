@@ -355,7 +355,10 @@ if selected == "Configuration":
         "1 hour": (1, 'hours'),
         "4 hours": (4, 'hours'),
         "12 hours": (12, 'hours'),
-        "24 hours": (24, 'hours')
+        "24 hours": (24, 'hours'),
+        "7 days": (7, 'days'),
+        "14 days": (14, 'days'),
+        "30 days": (30, 'days')
     }
     default_interval = next((k for k, v in interval_options.items() if v == (st.session_state.config_data.get('scheduling_interval', 2), st.session_state.config_data.get('scheduling_period', 'minutes'))), "2 minutes")
     selected_interval = st.selectbox("Select Scheduling Interval", list(interval_options.keys()), index=list(interval_options.keys()).index(default_interval))

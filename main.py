@@ -67,10 +67,18 @@ def load_config(config_path: str) -> Dict[str, Any]:
 
 
 def ensure_directory_exists(directory: str) -> None:
-    """Ensure that a directory exists; if not, create it."""
+    """Ensure that a directory exists; if not, create it. If it does, clean it."""
     if not os.path.exists(directory):
         logger.info("Creating missing directory: %s", directory)
         os.makedirs(directory)
+    else:
+        logger.info("Cleaning existing directory: %s", directory)
+        for filename in os.listdir(directory):
+            file_path = os.path.join(directory, filename)
+            try:
+                os.unlink(file_path)
+            except Exception as e:
+                logger.warning("Failed to delete %s: %s", file_path, e)
 
 
 def get_env_variable(key: str, default: Optional[str] = None) -> Optional[str]:
